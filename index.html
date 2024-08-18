@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chess 2024: Ultimate Edition</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #1e3c72;
+            --secondary-color: #2a5298;
+            --accent-color: #feca57;
+            --text-color: #ffffff;
+            --board-light: #f0d9b5;
+            --board-dark: #b58863;
+        }
+        body {
+            font-family: 'Roboto', sans-serif;
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #game-container {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 30px;
+            margin-top: 20px;
+        }
+        #chessboard {
+            display: grid;
+            grid-template-columns: repeat(8, minmax(40px, 70px));
+            grid-template-rows: repeat(8, minmax(40px, 70px));
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .cell {
+            aspect-ratio: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: clamp(24px, 5vw, 45px);
+            transition: all 0.3s ease;
+        }
+        .dark { background-color: var(--board-dark); }
+        .light { background-color: var(--board-light); }
+        .cell[data-piece] { cursor: pointer; }
+        .cell.selected { background-color: #f6f669; }
+        .cell.valid-move { background-color: #7ef76f; }
+        .cell:hover { transform: scale(1.05); }
+        #controls {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        button {
+            padding: 12px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background: linear-gradient(45deg, #ff6b6b, var(--accent-color));
+            color: var(--text-color);
+            border: none;
+            border-radius: 25px;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        #status {
+            margin-top: 20px;
+            font-size: 18px;
+            font-weight: bold;
+            text-align: center;
+        }
+        #network-status {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 14px;
+        }
+        .online { background-color: #4CAF50; }
+        .offline { background-color: #f44336; }
+        #achievements {
+            margin-top: 20px;
+            text-align: center;
+        }
+        .achievement {
+            display: inline-block;
+            margin: 5px;
+            padding: 5px 10px;
+            background-color: var(--accent-color);
+            color: #000;
+            border-radius: 15px;
+            font-size: 14px;
+        }
+        @media (max-width: 768px) {
+            #game-container {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>Chess 2024: Ultimate Edition</h1>
+    <div id="network-status"></div>
+    <div id="game-container">
+        <div id="chessboard"></div>
+        <div id="controls">
+            <button onclick="resetGame()">New Game</button>
+            <button onclick="toggleMode('friend')">Local Multiplayer</button>
+            <button onclick="toggleMode('ai')">AI Opponent</button>
+            <button onclick="toggleMode('online')" id="onlineButton">Online Match</button>
+            <button onclick="undoMove()">Undo Move</button>
+            <button onclick="toggleTheme()">Toggle Theme</button>
+        </div>
+    </div>
+    <div id="status"></div>
+    <div id="achievements"></div>
+
+    <script>
+        const pieces = {
+            p: "♟", r: "♜", n: "♞", b: "♝", q: "♛", k: "♚",
+            P: "♙", R: "♖", N: "♘", B: "♗", Q: "♕", K: "♔"
+        };
+        const initialBoard = [
+            ["r", "n", "b", "q", "k", "b", "n", "r"],
+            ["p", "p", "p", "p", "p", "p", "p", "p"],
+            ["", "", "", "", "", "", "", ""],
+            ["", "", "", "", "", "", "", ""],
+            ["", "", "", "", "", "", "", ""],
+            ["", "", "", "", "", "", "", ""],
+            ["P", "P", "P", "P", "P", "P", "P", "P"],
+            ["R", "N", "B", "Q", "K", "B", "N", "R"]
+        ];
+        let board = initialBoard.map(row => [...row]);
+        let selected = null;
+        let currentPlayer = 'white';
+        let gameMode = 'friend';
+        let moveHistory = [];
+        let theme = 'classic';
+        let achievements = new Set();
+
+        function createBoard() {
+            const chessboard = document.getElementById('chessboard');
+            chessboard.innerHTML = '';
+            for (let row = 0; row < 8; row++) {
+                for (let col = 0; col < 8; col++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell ' + ((row + col) % 2 === 0 ? 'light' : 'dark');
+                    cell.dataset.row = row;
+                    cell.dataset.col = col;
+                    const piece = board[row][col];
+                    if (piece) {
+                        cell.dataset.piece = piece;
+                        cell.innerHTML = pieces[piece];
+                    }
+                    cell.addEventListener('click', () => onCellClick(row, col));
+                    chessboard.appendChild(cell);
+                }
+            }
+            updateStatus();
+        }
+
+        function onCellClick(row, col) {
+            if (selected) {
+                if (isValidMove(selected.row, selected.col, row, col)) {
+                    movePiece(selected.row, selected.col, row, col);
+                    selected = null;
+                    switchPlayer();
+                    if (gameMode !== 'friend') {
+                        setTimeout(makeComputerMove, 500);
+                    }
+                } else {
+                    selected = null;
+                }
+                highlightCells();
+            } else if (board[row][col] && isPieceOwnedByCurrentPlayer(row, col)) {
+                selected = { row, col };
+                highlightCells();
+            }
+        }
+
+        function isValidMove(fromRow, fromCol, toRow, toCol) {
+            const piece = board[fromRow][fromCol].toLowerCase();
+            const dx = Math.abs(toCol - fromCol);
+            const dy = Math.abs(toRow - fromRow);
+
+            // Basic move validation (does not include check or special moves like castling)
+            switch (piece) {
+                case 'p':
+                    const direction = board[fromRow][fromCol] === 'P' ? -1 : 1;
+                    if (fromCol === toCol && board[toRow][toCol] === '') {
+                        if (toRow === fromRow + direction) return true;
+                        if ((fromRow === 1 && direction === 1 || fromRow === 6 && direction === -1) && toRow === fromRow + 2 * direction && board[fromRow + direction][toCol] === '') return true;
+                    }
+                    if (Math.abs(toCol - fromCol) === 1 && toRow === fromRow + direction && board[toRow][toCol] !== '') return true;
+                    break;
+                case 'r':
+                    if (fromRow === toRow || fromCol === toCol) return true;
+                    break;
+                case 'n':
+                    if ((dx === 1 && dy === 2) || (dx === 2 && dy === 1)) return true;
+                    break;
+                case 'b':
+                    if (dx === dy) return true;
+                    break;
+                case 'q':
+                    if (fromRow === toRow || fromCol === toCol || dx === dy) return true;
+                    break;
+                case 'k':
+                    if (dx <= 1 && dy <= 1) return true;
+                    break;
+            }
+            return false;
+        }
+
+        function movePiece(fromRow, fromCol, toRow, toCol) {
+            moveHistory.push({fromRow, fromCol, toRow, toCol, piece: board[fromRow][fromCol]});
+            board[toRow][toCol] = board[fromRow][fromCol];
+            board[fromRow][fromCol] = '';
+            createBoard();
+            checkForAchievements();
+        }
+
+        function isPieceOwnedByCurrentPlayer(row, col) {
+            const piece = board[row][col];
+            return (currentPlayer === 'white' && piece === piece.toUpperCase()) ||
+                   (currentPlayer === 'black' && piece === piece.toLowerCase());
+        }
+
+        function switchPlayer() {
+            currentPlayer = currentPlayer === 'white' ? 'black' : 'white';
+            updateStatus();
+        }
+
+        function makeComputerMove() {
+            const validMoves = [];
+            for (let fromRow = 0; fromRow < 8; fromRow++) {
+                for (let fromCol = 0; fromCol < 8; fromCol++) {
+                    if (isPieceOwnedByCurrentPlayer(fromRow, fromCol)) {
+                        for (let toRow = 0; toRow < 8; toRow++) {
+                            for (let toCol = 0; toCol < 8; toCol++) {
+                                if (isValidMove(fromRow, fromCol, toRow, toCol)) {
+                                    validMoves.push({fromRow, fromCol, toRow, toCol});
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (validMoves.length > 0) {
+                const move = validMoves[Math.floor(Math.random() * validMoves.length)];
+                movePiece(move.fromRow, move.fromCol, move.toRow, move.toCol);
+                switchPlayer();
+            }
+        }
+
+        function highlightCells() {
+            const cells = document.querySelectorAll('.cell');
+            cells.forEach(cell => {
+                cell.classList.remove('selected', 'valid-move');
+            });
+            if (selected) {
+                const selectedCell = document.querySelector(`.cell[data-row="${selected.row}"][data-col="${selected.col}"]`);
+                selectedCell.classList.add('selected');
+                for (let row = 0; row < 8; row++) {
+                    for (let col = 0; col < 8; col++) {
+                        if (isValidMove(selected.row, selected.col, row, col)) {
+                            const validCell = document.querySelector(`.cell[data-row="${row}"][data-col="${col}"]`);
+                            validCell.classList.add('valid-move');
+                        }
+                    }
+                }
+            }
+        }
+
+        function resetGame() {
+            board = initialBoard.map(row => [...row]);
+            currentPlayer = 'white';
+            selected = null;
+            moveHistory = [];
+            createBoard();
+        }
+
+        function toggleMode(mode) {
+            gameMode = mode;
+            resetGame();
+            updateStatus();
+            if (mode === 'online') {
+                alert('Searching for an online opponent...');
+            }
+        }
+
+        function updateStatus() {
+            const statusElement = document.getElementById('status');
+            statusElement.textContent = `Current Player: ${currentPlayer.charAt(0).toUpperCase() + currentPlayer.slice(1)} | Mode: ${gameMode.charAt(0).toUpperCase() + gameMode.slice(1)}`;
+        }
+
+        function undoMove() {
+            if (moveHistory.length > 0) {
+                const lastMove = moveHistory.pop();
+                board[lastMove.fromRow][lastMove.fromCol] = lastMove.piece;
+                board[lastMove.toRow][lastMove.toCol] = '';
+                switchPlayer();
+                createBoard();
+            }
+        }
+
+        function toggleTheme() {
+            theme = theme === 'classic' ? 'modern' : 'classic';
+            document.body.classList.toggle('modern-theme');
+            if (theme === 'modern') {
+                document.documentElement.style.setProperty('--board-light', '#e0e0e0');
+                document.documentElement.style.setProperty('--board-dark', '#78909c');
+                document.documentElement.style.setProperty('--primary-color', '#37474f');
+                document.documentElement.style.setProperty('--secondary-color', '#546e7a');
+            } else {
+                document.documentElement.style.setProperty('--board-light', '#f0d9b5');
+                document.documentElement.style.setProperty('--board-dark', '#b58863');
+                document.documentElement.style.setProperty('--primary-color', '#1e3c72');
+                document.documentElement.style.setProperty('--secondary-color', '#2a5298');
+            }
+            createBoard();
+        }
+
+        function checkForAchievements() {
+            if (moveHistory.length === 10) {
+                unlockAchievement('Early Bird', 'Made 10 moves');
+            }
+            if (moveHistory.length === 50) {
+                unlockAchievement('Strategist', 'Made 50 moves');
+            }
+        }
+
+        function unlockAchievement(title, description) {
+            if (!achievements.has(title)) {
+                achievements.add(title);
+                const achievementElement = document.createElement('div');
+                achievementElement.className = 'achievement';
+                achievementElement.textContent = `${title}: ${description}`;
+                document.getElementById('achievements').appendChild(achievementElement);
+            }
+        }
+
+        function updateNetworkStatus() {
+            const statusElement = document.getElementById('network-status');
+            if (navigator.onLine) {
+                statusElement.textContent = 'Online';
+                statusElement.className = 'online';
+                document.getElementById('onlineButton').disabled = false;
+            } else {
+                statusElement.textContent = 'Offline';
+                statusElement.className = 'offline';
